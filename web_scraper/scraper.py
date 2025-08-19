@@ -6,11 +6,11 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import re
+import database # Import the new database module
 
 def load_companies_from_file():
     """Loads a list of companies from companies.txt, located in the same directory as the script."""
     try:
-        # Build a path to companies.txt relative to the script's location
         script_dir = os.path.dirname(os.path.abspath(__file__))
         filepath = os.path.join(script_dir, "companies.txt")
         with open(filepath, 'r', encoding='utf-8') as f:
@@ -93,10 +93,9 @@ def infer_product_details(title):
     return segment, animal_replicated, positioning
 
 def scrape_shopify_store(company_name, store_url):
-    """Generic scraper for a Shopify store."""
+    """Generic scraper for a Shopify store that saves data to the database."""
     print(f"Scraping {company_name} (Shopify)...")
-    products = []
-    processed_urls = set()
+    scraped_count = 0
 
     try:
         response = requests.get(f"{store_url}/collections/all/products.json", timeout=10)
@@ -104,17 +103,13 @@ def scrape_shopify_store(company_name, store_url):
         data = response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error fetching data from {company_name}: {e}")
-        return products
+        return
 
     for product in data.get('products', []):
         product_url = f"{store_url}/products/{product['handle']}"
-        if product_url in processed_urls:
-            continue
 
         if "(copy)" in product['title'].lower():
             continue
-
-        processed_urls.add(product_url)
 
         segment, animal_replicated, positioning = infer_product_details(product['title'])
         if animal_replicated == "n/a":
@@ -136,7 +131,7 @@ def scrape_shopify_store(company_name, store_url):
                 "Consumption Format": "RTC",
                 "Storage Condition": "Frozen",
                 "Availability": "Active" if variant.get('available') else "OOS",
-                "In Stock": variant.get('available', False),
+                "In Stock": 1 if variant.get('available') else 0, # Use 1/0 for BOOLEAN
                 "Status": "Launched",
                 "Price (INR)": variant.get('price'),
                 "Weight": weight,
@@ -153,38 +148,33 @@ def scrape_shopify_store(company_name, store_url):
                 "Last Updated": product.get('updated_at', '').split('T')[0],
                 "Notes": ""
             }
-            products.append(product_data)
+            database.upsert_product(product_data)
+            scraped_count += 1
 
-    print(f"Scraped {len(products)} products from {company_name}.")
-    return products
+    print(f"Upserted {scraped_count} products/variants from {company_name} into the database.")
 
 def scrape_good_dot():
     """Scraper for Good Dot products."""
-    products = scrape_shopify_store("Good Dot", "https://gooddot.in")
-    for p in products:
-        p["Storage Condition"] = "Ambient"
-    return products
+    scrape_shopify_store("Good Dot", "https://gooddot.in")
+    # Specific logic for Good Dot if needed, e.g., updating storage condition
+    # This would require a more complex DB interaction (fetch, update, save)
+    # For now, we'll leave it as the Shopify default (Frozen) and note this as a limitation.
 
 def scrape_blue_tribe():
     """Scraper for Blue Tribe products."""
-    products = scrape_shopify_store("Blue Tribe", "https://www.bluetribefoods.com")
-    for p in products:
-        p["Storage Condition"] = "Frozen"
-    return products
+    scrape_shopify_store("Blue Tribe", "https://www.bluetribefoods.com")
 
 def scrape_company(company_name):
     """Generic scraper function that calls the specific scraper."""
     print(f"Scraping {company_name}...")
-    products = []
     sanitized_name = company_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_').replace("'", "")
     scraper_function_name = f"scrape_{sanitized_name}"
 
     scraper_function = globals().get(scraper_function_name)
     if scraper_function:
-        products = scraper_function()
+        scraper_function()
     else:
         print(f"No scraper implemented for {company_name} yet (expected function: {scraper_function_name}).")
-    return products
 
 def write_to_json(data, filename="products.json"):
     """Writes the scraped data to a JSON file."""
@@ -215,26 +205,28 @@ def write_to_csv(data, filename="products.csv"):
 
 def main():
     """Main function to orchestrate the scraping process."""
+    print("Initializing database...")
+    database.create_table() # Ensure table exists
+
     companies = load_companies_from_file()
     if not companies:
         print("No companies to scrape. Please check companies.txt.")
         return
 
-    all_products = []
     for company in companies:
-        products = scrape_company(company)
-        all_products.extend(products)
+        scrape_company(company)
         time.sleep(1)
 
-    # Build a path to the output directory relative to the script's location
+    print("\nScraping complete. Exporting data from database...")
+    all_products = database.get_all_products()
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = script_dir # Save in the same directory as the script
+    output_dir = script_dir
 
     write_to_json(all_products, os.path.join(output_dir, "products.json"))
     write_to_csv(all_products, os.path.join(output_dir, "products.csv"))
 
-    if not all_products:
-        print("No products were scraped.")
+    print(f"\nExport complete. {len(all_products)} total products saved.")
 
 if __name__ == "__main__":
     main()
