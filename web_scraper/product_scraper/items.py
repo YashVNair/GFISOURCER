@@ -1,0 +1,30 @@
+import scrapy
+
+class ProductItem(scrapy.Item):
+    # Define the fields for your item here like:
+    # name = scrapy.Field()
+    product_name = scrapy.Field()
+    brand = scrapy.Field()
+    segment = scrapy.Field()
+    positioning = scrapy.Field()
+    animal_product_replicated = scrapy.Field()
+    consumption_format = scrapy.Field()
+    storage_condition = scrapy.Field()
+    availability = scrapy.Field()
+    in_stock = scrapy.Field()
+    status = scrapy.Field()
+    price_inr = scrapy.Field()
+    weight = scrapy.Field()
+    weight_unit = scrapy.Field()
+    pack_size = scrapy.Field()
+    distribution_channels = scrapy.Field()
+    channel = scrapy.Field()
+    product_page = scrapy.Field()
+    website = scrapy.Field()
+    source_name = scrapy.Field()
+    source_links = scrapy.Field()
+    ingredients_list = scrapy.Field()
+    ingredient_count = scrapy.Field()
+    last_updated = scrapy.Field()
+    notes = scrapy.Field()
+pass
