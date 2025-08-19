@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import os
 import subprocess
 import threading
@@ -7,6 +7,7 @@ import database
 import concurrent.futures
 import sys
 import csv
+import file_exporter # Import the new module
 
 class ScraperGUI(tk.Frame):
     def __init__(self, master=None):
@@ -36,14 +37,12 @@ class ScraperGUI(tk.Frame):
         self.create_data_viewer_widgets(self.data_viewer_tab)
 
     def create_scraper_control_widgets(self, parent_tab):
+        # ... (same as before)
         left_frame = ttk.Frame(parent_tab)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         right_frame = ttk.Frame(parent_tab)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-
-        # --- Left Frame: Company Management ---
         ttk.Label(left_frame, text="Manage Companies", font=("Arial", 12, "bold")).pack(anchor="w")
-
         company_tree_frame = ttk.Frame(left_frame)
         company_tree_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         company_columns = ("Name", "Type", "URL")
@@ -55,31 +54,22 @@ class ScraperGUI(tk.Frame):
         company_scrollbar = ttk.Scrollbar(company_tree_frame, orient=tk.VERTICAL, command=self.company_tree.yview)
         company_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.company_tree.config(yscrollcommand=company_scrollbar.set)
-
         add_frame = ttk.LabelFrame(left_frame, text="Add New Company", padding=10)
         add_frame.pack(fill=tk.X, pady=5)
-
         ttk.Label(add_frame, text="Name:").grid(row=0, column=0, sticky="w", pady=2)
         self.name_entry = ttk.Entry(add_frame)
         self.name_entry.grid(row=0, column=1, sticky="ew", pady=2)
-
         ttk.Label(add_frame, text="Type:").grid(row=1, column=0, sticky="w", pady=2)
         self.type_entry = ttk.Entry(add_frame)
         self.type_entry.grid(row=1, column=1, sticky="ew", pady=2)
-        self.type_entry.insert(0, "shopify") # Default to shopify
-
+        self.type_entry.insert(0, "shopify")
         ttk.Label(add_frame, text="URL:").grid(row=2, column=0, sticky="w", pady=2)
         self.url_entry = ttk.Entry(add_frame)
         self.url_entry.grid(row=2, column=1, sticky="ew", pady=2)
-
         self.add_button = ttk.Button(add_frame, text="Add Company", command=self.add_company)
         self.add_button.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
-
         self.remove_button = ttk.Button(left_frame, text="Remove Selected Company", command=self.remove_company)
         self.remove_button.pack(fill=tk.X)
-
-        # --- Right Frame: Output and Controls ---
-        # ... (same as before)
         ttk.Label(right_frame, text="Scraper Log", font=("Arial", 12, "bold")).pack(anchor="w")
         log_frame = ttk.Frame(right_frame)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
@@ -94,12 +84,17 @@ class ScraperGUI(tk.Frame):
         self.run_button.pack(pady=10, fill=tk.X, ipady=5)
 
     def create_data_viewer_widgets(self, parent_tab):
-        # ... (same as before, just using self.data_tree now)
         top_frame = ttk.Frame(parent_tab)
         top_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Label(top_frame, text="Scraped Products Database", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
-        self.refresh_button = ttk.Button(top_frame, text="Refresh Data", command=self.refresh_data_view)
-        self.refresh_button.pack(side=tk.RIGHT)
+
+        button_pack = ttk.Frame(top_frame)
+        button_pack.pack(side=tk.RIGHT)
+        self.export_button = ttk.Button(button_pack, text="Export Data", command=self.export_data)
+        self.export_button.pack(side=tk.LEFT, padx=(0, 5))
+        self.refresh_button = ttk.Button(button_pack, text="Refresh Data", command=self.refresh_data_view)
+        self.refresh_button.pack(side=tk.LEFT)
+
         tree_frame = ttk.Frame(parent_tab)
         tree_frame.pack(fill=tk.BOTH, expand=True)
         columns = ("Brand", "Product Name", "Price (INR)", "Weight", "Availability", "Last Updated")
@@ -115,7 +110,28 @@ class ScraperGUI(tk.Frame):
         hsb.pack(side='bottom', fill='x')
         self.data_tree.configure(xscrollcommand=hsb.set)
 
+    def export_data(self):
+        products = database.get_all_products()
+        if not products:
+            messagebox.showinfo("Export Data", "There is no data in the database to export.")
+            return
+
+        json_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")], title="Save JSON As")
+        if json_path:
+            if file_exporter.write_to_json(products, json_path):
+                messagebox.showinfo("Success", f"Data successfully exported to {json_path}")
+            else:
+                messagebox.showerror("Error", f"Failed to export data to {json_path}")
+
+        csv_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")], title="Save CSV As")
+        if csv_path:
+            if file_exporter.write_to_csv(products, csv_path):
+                messagebox.showinfo("Success", f"Data successfully exported to {csv_path}")
+            else:
+                messagebox.showerror("Error", f"Failed to export data to {csv_path}")
+
     def sort_treeview(self, col, reverse, tree):
+        # ... (same as before)
         data = [(tree.set(child, col), child) for child in tree.get_children('')]
         data.sort(reverse=reverse)
         for index, (val, child) in enumerate(data):
@@ -123,6 +139,7 @@ class ScraperGUI(tk.Frame):
         tree.heading(col, command=lambda: self.sort_treeview(col, not reverse, tree))
 
     def refresh_data_view(self):
+        # ... (same as before)
         for item in self.data_tree.get_children():
             self.data_tree.delete(item)
         try:
@@ -134,12 +151,13 @@ class ScraperGUI(tk.Frame):
             messagebox.showerror("Database Error", f"Could not fetch data from the database.\n{e}")
 
     def load_companies_to_treeview(self):
+        # ... (same as before)
         for item in self.company_tree.get_children():
             self.company_tree.delete(item)
         try:
             with open(self.companies_file_path, 'r', newline='', encoding='utf-8') as f:
                 reader = csv.reader(f)
-                header = next(reader) # Skip header
+                header = next(reader)
                 for row in reader:
                     self.company_tree.insert("", tk.END, values=row)
         except FileNotFoundError:
@@ -150,6 +168,7 @@ class ScraperGUI(tk.Frame):
             messagebox.showerror("File Error", f"Could not read companies.csv.\n{e}")
 
     def save_companies_from_treeview(self):
+        # ... (same as before)
         try:
             with open(self.companies_file_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
@@ -160,6 +179,7 @@ class ScraperGUI(tk.Frame):
             messagebox.showerror("File Error", f"Could not save to companies.csv.\n{e}")
 
     def add_company(self):
+        # ... (same as before)
         name = self.name_entry.get().strip()
         scraper_type = self.type_entry.get().strip()
         url = self.url_entry.get().strip()
@@ -172,6 +192,7 @@ class ScraperGUI(tk.Frame):
             messagebox.showwarning("Warning", "All fields are required to add a company.")
 
     def remove_company(self):
+        # ... (same as before)
         selected_item = self.company_tree.selection()
         if selected_item:
             self.company_tree.delete(selected_item)
@@ -180,6 +201,7 @@ class ScraperGUI(tk.Frame):
             messagebox.showwarning("Warning", "Please select a company to remove.")
 
     def start_scraper_thread(self):
+        # ... (same as before)
         self.run_button.config(state=tk.DISABLED, text="Scraping...")
         self.output_text.config(state=tk.NORMAL)
         self.output_text.delete(1.0, tk.END)
@@ -188,16 +210,15 @@ class ScraperGUI(tk.Frame):
         thread.start()
 
     def execute_scraper(self):
+        # ... (same as before)
         python_executable = sys.executable
         try:
             with open(self.companies_file_path, 'r', newline='', encoding='utf-8') as f:
                 reader = list(csv.DictReader(f))
             if not reader:
                 raise Exception("companies.csv is empty. Add a company to scrape.")
-
             self.master.after(0, lambda: self.progress_bar.config(maximum=len(reader), value=0))
             self.completed_tasks = 0
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 future_to_company = {executor.submit(self.run_spider, company, python_executable): company for company in reader}
                 for future in concurrent.futures.as_completed(future_to_company):
@@ -209,7 +230,6 @@ class ScraperGUI(tk.Frame):
                     finally:
                         self.completed_tasks += 1
                         self.master.after(0, lambda: self.progress_bar.config(value=self.completed_tasks))
-
         except FileNotFoundError:
              self.master.after(0, self.append_to_output, "Error: companies.csv not found.")
         except Exception as e:
@@ -218,37 +238,27 @@ class ScraperGUI(tk.Frame):
             self.master.after(0, self.finalize_scraper_run)
 
     def run_spider(self, company_info, python_executable):
+        # ... (same as before)
         name = company_info['name']
         scraper_type = company_info['type']
         url = company_info['url']
-
         self.append_to_output(f"--- Starting scraper for: {name} ---\n")
-        command = [
-            python_executable, '-m', 'scrapy', 'crawl', 'product_spider',
-            '-a', f'name={name}',
-            '-a', f'type={scraper_type}',
-            '-a', f'url={url}'
-        ]
-        process = subprocess.Popen(
-            command,
-            cwd=self.project_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding='utf-8'
-        )
+        command = [python_executable, '-m', 'scrapy', 'crawl', 'product_spider', '-a', f'name={name}', '-a', f'type={scraper_type}', '-a', f'url={url}']
+        process = subprocess.Popen(command, cwd=self.project_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
         for line in iter(process.stdout.readline, ''):
             self.master.after(0, self.append_to_output, line)
         process.wait()
         self.append_to_output(f"--- Finished scraper for: {name} ---\n\n")
 
     def append_to_output(self, text):
+        # ... (same as before)
         self.output_text.config(state=tk.NORMAL)
         self.output_text.insert(tk.END, text)
         self.output_text.see(tk.END)
         self.output_text.config(state=tk.DISABLED)
 
     def finalize_scraper_run(self):
+        # ... (same as before)
         self.run_button.config(state=tk.NORMAL, text="Run All Scrapers")
         if self.progress_bar['value'] == self.progress_bar['maximum']:
              messagebox.showinfo("Success", "All scrapers have completed their runs!")
