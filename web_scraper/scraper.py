@@ -7,14 +7,17 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-def load_companies_from_file(filepath="web_scraper/companies.txt"):
-    """Loads a list of companies from a text file."""
+def load_companies_from_file():
+    """Loads a list of companies from companies.txt, located in the same directory as the script."""
     try:
+        # Build a path to companies.txt relative to the script's location
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        filepath = os.path.join(script_dir, "companies.txt")
         with open(filepath, 'r', encoding='utf-8') as f:
             companies = [line.strip() for line in f if line.strip()]
         return companies
     except FileNotFoundError:
-        print(f"Error: The file {filepath} was not found.")
+        print(f"Error: The file companies.txt was not found in the same directory as the scraper script.")
         return []
 
 def get_today_date():
@@ -223,9 +226,9 @@ def main():
         all_products.extend(products)
         time.sleep(1)
 
-    output_dir = "web_scraper"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    # Build a path to the output directory relative to the script's location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = script_dir # Save in the same directory as the script
 
     write_to_json(all_products, os.path.join(output_dir, "products.json"))
     write_to_csv(all_products, os.path.join(output_dir, "products.csv"))
