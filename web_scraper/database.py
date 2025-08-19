@@ -1,11 +1,12 @@
 import sqlite3
 import os
+import threading
 
 DB_FILE = os.path.join(os.path.dirname(__file__), "scraper.db")
 
 def db_connect():
     """Establishes a connection to the SQLite database."""
-    return sqlite3.connect(DB_FILE)
+    return sqlite3.connect(DB_FILE, timeout=10) # Added timeout for concurrent access
 
 def create_table():
     """Creates the 'products' table if it doesn't already exist."""
@@ -43,36 +44,42 @@ def create_table():
     conn.close()
     print("Database table 'products' is ready.")
 
-def upsert_product(product_data):
-    """Inserts a new product or replaces an existing one based on the primary key (Product Page)."""
-    conn = db_connect()
-    cursor = conn.cursor()
+def upsert_product(product_data, db_lock):
+    """
+    Inserts a new product or replaces an existing one in a thread-safe manner.
+    """
+    with db_lock:
+        try:
+            conn = db_connect()
+            cursor = conn.cursor()
 
-    columns = ', '.join([f'"{col}"' for col in product_data.keys()])
-    placeholders = ', '.join(['?'] * len(product_data))
+            columns = ', '.join([f'"{col}"' for col in product_data.keys()])
+            placeholders = ', '.join(['?'] * len(product_data))
 
-    sql = f"INSERT OR REPLACE INTO products ({columns}) VALUES ({placeholders})"
+            sql = f"INSERT OR REPLACE INTO products ({columns}) VALUES ({placeholders})"
 
-    cursor.execute(sql, list(product_data.values()))
+            cursor.execute(sql, list(product_data.values()))
 
-    conn.commit()
-    conn.close()
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+        finally:
+            if conn:
+                conn.close()
 
 def get_all_products():
     """Fetches all products from the database and returns them as a list of dictionaries."""
     conn = db_connect()
-    conn.row_factory = sqlite3.Row # This allows accessing columns by name
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM products")
     rows = cursor.fetchall()
 
-    # Convert rows to a list of dictionaries
     products = [dict(row) for row in rows]
 
     conn.close()
     return products
 
 if __name__ == '__main__':
-    # Initialize the database and table when the script is run directly
     create_table()

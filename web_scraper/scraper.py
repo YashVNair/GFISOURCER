@@ -6,7 +6,9 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import re
-import database # Import the new database module
+import database
+import concurrent.futures
+import threading
 
 def load_companies_from_file():
     """Loads a list of companies from companies.txt, located in the same directory as the script."""
@@ -92,7 +94,7 @@ def infer_product_details(title):
 
     return segment, animal_replicated, positioning
 
-def scrape_shopify_store(company_name, store_url):
+def scrape_shopify_store(company_name, store_url, db_lock):
     """Generic scraper for a Shopify store that saves data to the database."""
     print(f"Scraping {company_name} (Shopify)...")
     scraped_count = 0
@@ -131,7 +133,7 @@ def scrape_shopify_store(company_name, store_url):
                 "Consumption Format": "RTC",
                 "Storage Condition": "Frozen",
                 "Availability": "Active" if variant.get('available') else "OOS",
-                "In Stock": 1 if variant.get('available') else 0, # Use 1/0 for BOOLEAN
+                "In Stock": 1 if variant.get('available') else 0,
                 "Status": "Launched",
                 "Price (INR)": variant.get('price'),
                 "Weight": weight,
@@ -148,23 +150,20 @@ def scrape_shopify_store(company_name, store_url):
                 "Last Updated": product.get('updated_at', '').split('T')[0],
                 "Notes": ""
             }
-            database.upsert_product(product_data)
+            database.upsert_product(product_data, db_lock)
             scraped_count += 1
 
     print(f"Upserted {scraped_count} products/variants from {company_name} into the database.")
 
-def scrape_good_dot():
+def scrape_good_dot(db_lock):
     """Scraper for Good Dot products."""
-    scrape_shopify_store("Good Dot", "https://gooddot.in")
-    # Specific logic for Good Dot if needed, e.g., updating storage condition
-    # This would require a more complex DB interaction (fetch, update, save)
-    # For now, we'll leave it as the Shopify default (Frozen) and note this as a limitation.
+    scrape_shopify_store("Good Dot", "https://gooddot.in", db_lock)
 
-def scrape_blue_tribe():
+def scrape_blue_tribe(db_lock):
     """Scraper for Blue Tribe products."""
-    scrape_shopify_store("Blue Tribe", "https://www.bluetribefoods.com")
+    scrape_shopify_store("Blue Tribe", "https://www.bluetribefoods.com", db_lock)
 
-def scrape_company(company_name):
+def scrape_company(company_name, db_lock):
     """Generic scraper function that calls the specific scraper."""
     print(f"Scraping {company_name}...")
     sanitized_name = company_name.lower().replace(' ', '_').replace('(', '').replace(')', '').replace('-', '_').replace("'", "")
@@ -172,7 +171,7 @@ def scrape_company(company_name):
 
     scraper_function = globals().get(scraper_function_name)
     if scraper_function:
-        scraper_function()
+        scraper_function(db_lock)
     else:
         print(f"No scraper implemented for {company_name} yet (expected function: {scraper_function_name}).")
 
@@ -205,19 +204,23 @@ def write_to_csv(data, filename="products.csv"):
 
 def main():
     """Main function to orchestrate the scraping process."""
+    start_time = time.time()
     print("Initializing database...")
-    database.create_table() # Ensure table exists
+    database.create_table()
 
     companies = load_companies_from_file()
     if not companies:
         print("No companies to scrape. Please check companies.txt.")
         return
 
-    for company in companies:
-        scrape_company(company)
-        time.sleep(1)
+    db_lock = threading.Lock()
 
-    print("\nScraping complete. Exporting data from database...")
+    # Use a ThreadPoolExecutor to scrape companies concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # We use a lambda to pass the db_lock to each scrape_company call
+        executor.map(lambda company: scrape_company(company, db_lock), companies)
+
+    print("\nConcurrent scraping complete. Exporting data from database...")
     all_products = database.get_all_products()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -226,7 +229,10 @@ def main():
     write_to_json(all_products, os.path.join(output_dir, "products.json"))
     write_to_csv(all_products, os.path.join(output_dir, "products.csv"))
 
+    end_time = time.time()
     print(f"\nExport complete. {len(all_products)} total products saved.")
+    print(f"Total execution time: {end_time - start_time:.2f} seconds.")
+
 
 if __name__ == "__main__":
     main()
