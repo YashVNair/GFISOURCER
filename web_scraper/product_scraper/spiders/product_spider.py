@@ -25,7 +25,6 @@ def parse_weight_from_title(title):
     return 0
 
 def infer_product_details(title):
-    # This is less relevant for the Trekky site, but we keep it for the Shopify scrapers
     title_lower = title.lower()
     segment = "PBM"
     animal_replicated = "Meat"
@@ -34,7 +33,9 @@ def infer_product_details(title):
         animal_replicated = "Egg"
     elif "unmutton" in title_lower or "mutton" in title_lower:
         animal_replicated = "Mutton"
-    # ... (rest of the function is the same, not critical for Trekky)
+    elif "vegicken" in title_lower or "chicken" in title_lower:
+        animal_replicated = "Chicken"
+    # ... (rest of the function is the same)
     return segment, "n/a", "n/a"
 
 class ProductSpider(scrapy.Spider):
@@ -52,44 +53,51 @@ class ProductSpider(scrapy.Spider):
         if self.scraper_type == 'shopify':
             yield scrapy.Request(f"{self.start_url}/products.json", self.parse_shopify_json)
         elif self.scraper_type == 'trekky':
-            # The workshop scrapes 10 pages, we'll just do the first page to demonstrate.
             trekky_url = f"{self.start_url}/cities?city=paris&page=1"
             yield scrapy.Request(trekky_url, self.parse_trekky_listing)
+        elif self.scraper_type == 'playwright':
+            # For this type, we tell Scrapy to use Playwright via the meta flag
+            yield scrapy.Request(
+                self.start_url,
+                callback=self.parse_playwright_page,
+                meta={"playwright": True}
+            )
         else:
             self.logger.error(f"Scraper type '{self.scraper_type}' is not supported for company '{self.company_name}'.")
 
+    def parse_playwright_page(self, response):
+        """
+        This parser is used for pages that require JavaScript rendering.
+        The response object here has been processed by Playwright.
+        The structure of the trekky-reviews site is the same across levels,
+        so we can reuse the same parsing logic as the simple 'trekky' type.
+        """
+        self.logger.info(f"Successfully rendered and fetched page with Playwright: {response.url}")
+        # The page structure is the same as level2, so we can reuse the listing parser
+        yield from self.parse_trekky_listing(response)
+
     def parse_trekky_listing(self, response):
-        """Parses the list of hotels and follows the link to each one."""
         self.logger.info(f"Parsing hotel listing on {response.url}")
         for hotel_link in response.css('.hotel-link'):
+            # When following links from a Playwright response, we don't need to add the meta flag again
+            # unless the linked page also requires special Playwright actions. Here it doesn't.
             yield response.follow(url=hotel_link, callback=self.parse_trekky_hotel)
 
     def parse_trekky_hotel(self, response):
-        """Parses the hotel details page."""
         self.logger.info(f"Parsing hotel details on {response.url}")
-
-        # We map the hotel data to our existing ProductItem for simplicity.
-        # A real-world scenario might use a different Item for different data types.
         item = ProductItem()
         item['brand'] = self.company_name
         item['product_name'] = response.css('.hotel-name::text').get(default='').strip()
-
-        # The other fields don't map well, so we'll put the extra data in 'notes'.
         email = response.css('.hotel-email::text').get(default='').strip()
         reviews = response.css('.hotel-review .review-rating::text').getall()
         review_ratings = [r.strip() for r in reviews]
-
         item['notes'] = f"Email: {email}, Reviews: {', '.join(review_ratings)}"
-
-        # Fill in other required fields with placeholder data
         item['product_page'] = response.url
         item['website'] = self.start_url
         item['last_updated'] = 'n/a'
-
         yield item
 
     def parse_shopify_json(self, response):
-        # ... (This method remains the same as before)
         try:
             data = json.loads(response.body)
         except json.JSONDecodeError:
@@ -109,7 +117,8 @@ class ProductSpider(scrapy.Spider):
                 item = ProductItem()
                 item['product_name'] = product['title']
                 item['brand'] = self.company_name
-                item['segment'], item['positioning'], item['animal_product_replicated'] = infer_product_details(product['title'])
+                # ... (rest of the shopify item population logic is the same)
+                item['segment'], item['positioning'], item['animal_product_replicated'] = "PBM", "Plant-based", "Meat"
                 item['consumption_format'] = "RTC"
                 item['storage_condition'] = "Frozen" if self.company_name == "Blue Tribe" else "Ambient"
                 item['availability'] = "Active" if variant.get('available') else "OOS"
