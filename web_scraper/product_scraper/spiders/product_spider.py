@@ -3,7 +3,7 @@ import json
 import re
 from product_scraper.items import ProductItem
 
-# Helper functions (adapted from the old scraper.py)
+# Helper functions can remain here or be moved to a separate utils.py file
 def extract_ingredients(body_html):
     if not body_html:
         return "", 0
@@ -57,19 +57,24 @@ def infer_product_details(title):
         positioning = "High protein vegetarian product"
     return segment, animal_replicated, positioning
 
-class ShopifySpider(scrapy.Spider):
-    """
-    A generic spider for Shopify stores that use the /products.json endpoint.
-    Subclasses must define `name` and `domain`.
-    """
-    domain = None # Must be overridden by subclasses
+class ProductSpider(scrapy.Spider):
+    name = "product_spider"
+
+    def __init__(self, *args, **kwargs):
+        super(ProductSpider, self).__init__(*args, **kwargs)
+        self.company_name = kwargs.get('name')
+        self.scraper_type = kwargs.get('type')
+        self.start_url = kwargs.get('url')
+        if not all([self.company_name, self.scraper_type, self.start_url]):
+            raise ValueError("Spider must be run with `name`, `type`, and `url` arguments.")
 
     def start_requests(self):
-        if not self.domain:
-            raise ValueError("Subclasses of ShopifySpider must define a `domain`.")
-        yield scrapy.Request(f"https://{self.domain}/products.json", self.parse_json)
+        if self.scraper_type == 'shopify':
+            yield scrapy.Request(f"{self.start_url}/products.json", self.parse_shopify_json)
+        else:
+            self.logger.error(f"Scraper type '{self.scraper_type}' is not supported for company '{self.company_name}'.")
 
-    def parse_json(self, response):
+    def parse_shopify_json(self, response):
         try:
             data = json.loads(response.body)
         except json.JSONDecodeError:
@@ -77,7 +82,7 @@ class ShopifySpider(scrapy.Spider):
             return
 
         for product in data.get('products', []):
-            product_url = f"https://{self.domain}/products/{product['handle']}"
+            product_url = f"{self.start_url}/products/{product['handle']}"
 
             if "(copy)" in product['title'].lower():
                 continue
@@ -94,12 +99,13 @@ class ShopifySpider(scrapy.Spider):
 
                 item = ProductItem()
                 item['product_name'] = product['title']
-                item['brand'] = self.name.replace('_spider', '').replace('_', ' ').title()
+                item['brand'] = self.company_name
                 item['segment'] = segment
                 item['positioning'] = positioning
                 item['animal_product_replicated'] = animal_replicated
                 item['consumption_format'] = "RTC"
-                item['storage_condition'] = "Frozen" # Default, can be overridden
+                # Storage condition can be inferred or set based on brand if needed
+                item['storage_condition'] = "Frozen" if self.company_name == "Blue Tribe" else "Ambient"
                 item['availability'] = "Active" if variant.get('available') else "OOS"
                 item['in_stock'] = 1 if variant.get('available') else 0
                 item['status'] = "Launched"
@@ -110,26 +116,11 @@ class ShopifySpider(scrapy.Spider):
                 item['distribution_channels'] = "Brand website"
                 item['channel'] = "D2C"
                 item['product_page'] = product_url
-                item['website'] = f"https://{self.domain}"
-                item['source_name'] = f"{item['brand']} Official Website"
+                item['website'] = self.start_url
+                item['source_name'] = f"{self.company_name} Official Website"
                 item['source_links'] = product_url
                 item['ingredients_list'] = ingredients
                 item['ingredient_count'] = ingredient_count
                 item['last_updated'] = product.get('updated_at', '').split('T')[0]
                 item['notes'] = ""
                 yield item
-
-class GoodDotSpider(ShopifySpider):
-    name = "good_dot"
-    domain = "gooddot.in"
-
-    def parse_json(self, response):
-        # Good Dot products are ambient, so we override the storage condition
-        for item in super().parse_json(response):
-            item['storage_condition'] = "Ambient"
-            yield item
-
-class BlueTribeSpider(ShopifySpider):
-    name = "blue_tribe"
-    domain = "www.bluetribefoods.com"
-    # Uses the default ShopifySpider logic, no override needed.
