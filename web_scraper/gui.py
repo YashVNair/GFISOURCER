@@ -70,8 +70,15 @@ class ScraperGUI(tk.Frame):
         self.url_entry = ttk.Entry(add_frame)
         self.url_entry.grid(row=1, column=1, sticky="ew", pady=2)
 
+        ttk.Label(add_frame, text="Type:").grid(row=2, column=0, sticky="w", pady=2)
+        self.type_var = tk.StringVar()
+        self.type_combo = ttk.Combobox(add_frame, textvariable=self.type_var)
+        self.type_combo['values'] = ('Detect Automatically', 'Shopify', 'WooCommerce')
+        self.type_combo.set('Detect Automatically')
+        self.type_combo.grid(row=2, column=1, sticky="ew", pady=2)
+
         self.add_button = ttk.Button(add_frame, text="Add Company", command=self.add_company)
-        self.add_button.grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
+        self.add_button.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
         self.remove_button = ttk.Button(left_frame, text="Remove Selected Company", command=self.remove_company)
         self.remove_button.pack(fill=tk.X)
@@ -182,30 +189,39 @@ class ScraperGUI(tk.Frame):
     def add_company(self):
         name = self.name_entry.get().strip()
         url = self.url_entry.get().strip()
+        scraper_type = self.type_var.get()
 
         if not name or not url:
             messagebox.showwarning("Warning", "Company Name and URL are required.")
             return
 
-        self.add_button.config(state=tk.DISABLED, text="Detecting...")
-        thread = threading.Thread(target=self.run_add_company_flow, args=(name, url), daemon=True)
-        thread.start()
+        if scraper_type == 'Detect Automatically':
+            self.add_button.config(state=tk.DISABLED, text="Detecting...")
+            thread = threading.Thread(target=self.run_add_company_flow, args=(name, url), daemon=True)
+            thread.start()
+        else:
+            # Manually selected type
+            self.company_tree.insert("", tk.END, values=(name, scraper_type.lower(), url))
+            self.save_companies_from_treeview()
+            self.name_entry.delete(0, tk.END)
+            self.url_entry.delete(0, tk.END)
+            messagebox.showinfo("Success", f"'{name}' was added with type '{scraper_type}'.")
 
     def run_add_company_flow(self, name, url):
         platform = platform_detector.detect_platform(url)
 
         def update_gui():
             self.add_button.config(state=tk.NORMAL, text="Add Company")
-            if platform == 'shopify':
+            if platform in ['shopify', 'woocommerce']:
                 self.company_tree.insert("", tk.END, values=(name, platform, url))
                 self.save_companies_from_treeview()
                 self.name_entry.delete(0, tk.END)
                 self.url_entry.delete(0, tk.END)
-                messagebox.showinfo("Success", f"'{name}' was added. It has been identified as a Shopify store.")
+                messagebox.showinfo("Success", f"'{name}' was added. Detected platform: {platform.capitalize()}.")
             elif platform == 'error':
                 messagebox.showerror("Error", f"Could not connect to the URL for '{name}'. Please check the URL and your internet connection.")
             else: # 'unknown' or any other platform
-                messagebox.showwarning("Unsupported Website", f"The website for '{name}' is not a supported Shopify store. The application can only scrape Shopify websites automatically.")
+                messagebox.showwarning("Unsupported Website", f"Could not automatically determine the platform for '{name}'. You can try adding it again by manually selecting the type.")
 
         self.master.after(0, update_gui)
 

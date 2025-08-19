@@ -26,9 +26,11 @@ The application has two main tabs: "Scraper Control" and "Data Viewer".
 This is where you manage the list of companies you want to get data from.
 
 - **To Add a Company:**
-    1.  In the "Add New Company" section, type the name of the company and the full URL of its website (e.g., `https://www.example.com`).
-    2.  Click the **"Add Company"** button.
-    3.  The application will check the website. If it's a compatible Shopify store, it will be added to the list. If not, a message will appear to let you know.
+    1.  In the "Add New Company" section, type the name of the company and the full URL of its website.
+    2.  Leave the **Type** dropdown set to **"Detect Automatically"** (recommended).
+    3.  Click the **"Add Company"** button.
+    4.  The application will check the website and add it if it's a supported platform (like Shopify or WooCommerce).
+    5.  **Manual Override:** If automatic detection fails for a site you know is supported, you can manually select its type from the dropdown menu before clicking "Add Company".
 
 - **To Remove a Company:**
     1.  Click on a company in the list to select it.

@@ -23,6 +23,10 @@ def detect_platform(url):
         response.raise_for_status()
         content = response.text
 
+        # Check for BigCommerce first, as it's more specific and reliable
+        if 'content="Bigcommerce"' in content or 'stencil-utils.js' in content:
+            return 'bigcommerce'
+
         # Simple checks for Shopify fingerprints
         if 'Shopify' in content or 'cdn.shopify.com' in content or '.myshopify.com' in url:
             return 'shopify'
@@ -43,6 +47,7 @@ if __name__ == '__main__':
         "Good Dot (Shopify)": "https://gooddot.in",
         "Blue Tribe (Shopify)": "https://www.bluetribefoods.com",
         "Vezlay (WooCommerce)": "https://vezlay.com/",
+        "Skullcandy (BigCommerce)": "https://www.skullcandy.com/",
         "Google (Unknown)": "https://google.com",
         "Invalid URL": "https://thissitedoesnotexist12345.com"
     }

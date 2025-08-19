@@ -55,6 +55,9 @@ class ProductSpider(scrapy.Spider):
         elif self.scraper_type == 'woocommerce':
             # For WooCommerce, we start at the main shop URL, which should be a listing page.
             yield scrapy.Request(self.start_url, self.parse_woocommerce_listing)
+        elif self.scraper_type == 'bigcommerce':
+            # For BigCommerce, we also start at a listing page.
+            yield scrapy.Request(self.start_url, self.parse_bigcommerce_listing)
         elif self.scraper_type == 'trekky':
             trekky_url = f"{self.start_url}/cities?city=paris&page=1"
             yield scrapy.Request(trekky_url, self.parse_trekky_listing)
@@ -146,6 +149,84 @@ class ProductSpider(scrapy.Spider):
         item['channel'] = "D2C"
         item['last_updated'] = 'n/a' # WooCommerce doesn't expose this easily
         item['notes'] = "Price is N/A, likely a catalog-mode site." if item['price_inr'] == 'N/A' else ""
+
+        yield item
+
+    def parse_bigcommerce_listing(self, response):
+        """
+        This parser finds all product links on a BigCommerce category/shop page
+        and yields a request to parse each product page.
+        """
+        self.logger.info(f"Parsing BigCommerce product list on {response.url}")
+        # Common selector for product links in BigCommerce themes
+        product_links = response.css('article.product .card-figure a::attr(href)').getall()
+        for link in product_links:
+            yield response.follow(link, self.parse_bigcommerce_product)
+
+        # Handle pagination if it exists
+        next_page = response.css('.pagination-item--next a::attr(href)').get()
+        if next_page:
+            yield response.follow(next_page, self.parse_bigcommerce_listing)
+
+    def parse_bigcommerce_product(self, response):
+        """
+        This parser extracts data from a single BigCommerce product page.
+        """
+        self.logger.info(f"Parsing BigCommerce product page: {response.url}")
+        item = ProductItem()
+
+        # --- Basic Information ---
+        item['product_name'] = response.css('h1.product-view-title::text').get('').strip()
+        item['brand'] = self.company_name
+        item['product_page'] = response.url
+        item['website'] = self.start_url
+        item['source_name'] = f"{self.company_name} Official Website"
+        item['source_links'] = response.url
+
+        # --- Pricing and Availability ---
+        price_str = response.css('.price-section .price--main::text').get()
+        if not price_str:
+             price_str = response.css('.price-section .price--discounted::text').get()
+
+        if price_str:
+            # Assuming USD for skullcandy, would need to handle other currencies
+            item['price_inr'] = price_str.replace('$', '').strip()
+        else:
+            item['price_inr'] = 'N/A'
+
+        if response.css('.form-action-out-of-stock'):
+            item['availability'] = 'OOS'
+            item['in_stock'] = 0
+        else:
+            item['availability'] = 'Active'
+            item['in_stock'] = 1
+
+        # --- Product Details ---
+        description_html = response.css('div.product-description').get()
+        ingredients, ingredient_count = extract_ingredients(description_html)
+        item['ingredients_list'] = ingredients
+        item['ingredient_count'] = ingredient_count
+
+        item['weight'] = parse_weight_from_title(item['product_name'])
+        item['weight_unit'] = "g" if item['weight'] else ""
+        item['pack_size'] = ""
+
+        # --- Categorization (using helper) ---
+        # NOTE: This is for smart protein, so this will be irrelevant for Skullcandy,
+        # but we keep the logic for when this parser is used on a relevant site.
+        segment, positioning, animal_replicated = infer_product_details(item['product_name'])
+        item['segment'] = segment
+        item['positioning'] = positioning
+        item['animal_product_replicated'] = animal_replicated
+
+        # --- Default/Placeholder Values ---
+        item['consumption_format'] = "N/A"
+        item['storage_condition'] = "Ambient"
+        item['status'] = "Launched"
+        item['distribution_channels'] = "Brand website"
+        item['channel'] = "D2C"
+        item['last_updated'] = 'n/a'
+        item['notes'] = ""
 
         yield item
 
