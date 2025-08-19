@@ -7,26 +7,15 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-# List of smart protein companies
-COMPANIES = [
-    "Good Dot", "Blue Tribe", "Shaka Harry", "Greenest", "Imagine Meats",
-    "Plantaway", "ITC", "Sudo", "Mighty Foods", "PlantMade", "Vezlay",
-    "Big Sam's", "Tata Simply better", "PFC Foods", "Licious", "Loma Linda",
-    "Imposter Meat", "FoodEase", "Next Meats", "Wakao Foods", "One Good",
-    "So Good", "Sofit", "Epigamia", "Milkin Oats", "Alt Company", "Alt Foods",
-    "Slicc", "Oatmlk", "Only Earth", "Oatey", "Urban Platter", "RAW Pressery",
-    "Silk", "Pilk", "Borges Natura", "Plantena", "Oatmax", "Made from Plants",
-    "UFC Velvet", "MilkLab", "Go Core Superfoods", "Drupe Power", "Tendo",
-    "Plan B", "The Bridge Mia Italia", "Sain", "Nourish You", "1Ness",
-    "Softspot", "Grabenord", "Bombay Cheese Company", "White Cub", "Funny Nani",
-    "Nutriquo", "Evo Foods", "Homecraft", "Brooklyn Creamery", "Papacream",
-    "Minus 30", "Go Zero", "Nomou", "NOTO", "Mister Veg", "Veggie Champ",
-    "Seaspire", "Good Mylk (Veganarke)", "Vegeta Gold", "Cocomama",
-    "Better Bet", "ITC MasterChef", "Dancing Cow", "The Alt Company",
-    "Supplant Foods", "Imagine Foods", "Katharos", "BioZen", "Beyond Meat",
-    "MeEat", "Earthmade Organix", "Simplifry", "BVegan", "Vecan Foods",
-    "Sheese", "Nurrish"
-]
+def load_companies_from_file(filepath="web_scraper/companies.txt"):
+    """Loads a list of companies from a text file."""
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            companies = [line.strip() for line in f if line.strip()]
+        return companies
+    except FileNotFoundError:
+        print(f"Error: The file {filepath} was not found.")
+        return []
 
 def get_today_date():
     """Returns the current date in YYYY-MM-DD format."""
@@ -90,7 +79,7 @@ def infer_product_details(title):
         animal_replicated = "n/a"
     elif "soya chaap" in title_lower:
         animal_replicated = "Meat"
-    elif "fries" in title_lower: # Sweet Potato Fries
+    elif "fries" in title_lower:
         animal_replicated = "n/a"
 
 
@@ -124,7 +113,6 @@ def scrape_shopify_store(company_name, store_url):
 
         processed_urls.add(product_url)
 
-        # We process all variants, but we check the inclusion criteria on the main product title
         segment, animal_replicated, positioning = infer_product_details(product['title'])
         if animal_replicated == "n/a":
             print(f"Skipping product '{product['title']}' as it does not seem to be a meat analogue.")
@@ -224,9 +212,13 @@ def write_to_csv(data, filename="products.csv"):
 
 def main():
     """Main function to orchestrate the scraping process."""
-    all_products = []
+    companies = load_companies_from_file()
+    if not companies:
+        print("No companies to scrape. Please check companies.txt.")
+        return
 
-    for company in COMPANIES:
+    all_products = []
+    for company in companies:
         products = scrape_company(company)
         all_products.extend(products)
         time.sleep(1)
