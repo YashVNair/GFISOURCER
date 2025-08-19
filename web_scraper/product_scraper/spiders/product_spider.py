@@ -51,7 +51,10 @@ class ProductSpider(scrapy.Spider):
 
     def start_requests(self):
         if self.scraper_type == 'shopify':
-            yield scrapy.Request(f"{self.start_url}/products.json", self.parse_shopify_json)
+            yield scrapy.Request(f"{self.start_url.rstrip('/')}/products.json", self.parse_shopify_json)
+        elif self.scraper_type == 'woocommerce':
+            # For WooCommerce, we start at the main shop URL, which should be a listing page.
+            yield scrapy.Request(self.start_url, self.parse_woocommerce_listing)
         elif self.scraper_type == 'trekky':
             trekky_url = f"{self.start_url}/cities?city=paris&page=1"
             yield scrapy.Request(trekky_url, self.parse_trekky_listing)
@@ -64,6 +67,87 @@ class ProductSpider(scrapy.Spider):
             )
         else:
             self.logger.error(f"Scraper type '{self.scraper_type}' is not supported for company '{self.company_name}'.")
+
+    def parse_woocommerce_listing(self, response):
+        """
+        This parser finds all product links on a WooCommerce category/shop page
+        and yields a request to parse each product page.
+        """
+        self.logger.info(f"Parsing WooCommerce product list on {response.url}")
+        # Common selector for product links in WooCommerce themes
+        product_links = response.css('.products .product a::attr(href)').getall()
+        for link in product_links:
+            yield response.follow(link, self.parse_woocommerce_product)
+
+        # Handle pagination if it exists
+        next_page = response.css('.woocommerce-pagination .next::attr(href)').get()
+        if next_page:
+            yield response.follow(next_page, self.parse_woocommerce_listing)
+
+    def parse_woocommerce_product(self, response):
+        """
+        This parser extracts data from a single WooCommerce product page.
+        """
+        self.logger.info(f"Parsing WooCommerce product page: {response.url}")
+        item = ProductItem()
+
+        # --- Basic Information ---
+        item['product_name'] = response.css('h1.product_title::text').get('').strip()
+        item['brand'] = self.company_name
+        item['product_page'] = response.url
+        item['website'] = self.start_url
+        item['source_name'] = f"{self.company_name} Official Website"
+        item['source_links'] = response.url
+
+        # --- Pricing and Availability ---
+        price_str = response.css('.price .woocommerce-Price-amount.amount bdi::text').get()
+        if price_str:
+            item['price_inr'] = price_str.replace('₹', '').strip()
+        else:
+            item['price_inr'] = 'N/A' # For catalog mode sites like Vezlay
+
+        # Check for stock status
+        if response.css('.stock.in-stock'):
+            item['availability'] = 'Active'
+            item['in_stock'] = 1
+        elif response.css('.stock.out-of-stock'):
+            item['availability'] = 'OOS'
+            item['in_stock'] = 0
+        else:
+            # If no explicit stock status, assume available if there's a price or it's a catalog site
+            item['availability'] = 'Active' if item['price_inr'] != 'N/A' else 'Need to recheck'
+            item['in_stock'] = 1 if item['price_inr'] != 'N/A' else 0
+
+
+        # --- Product Details ---
+        description_html = response.css('div.woocommerce-product-details__short-description').get()
+        if not description_html:
+            description_html = response.css('#tab-description').get()
+
+        ingredients, ingredient_count = extract_ingredients(description_html)
+        item['ingredients_list'] = ingredients
+        item['ingredient_count'] = ingredient_count
+
+        item['weight'] = parse_weight_from_title(item['product_name'])
+        item['weight_unit'] = "g" if item['weight'] else ""
+        item['pack_size'] = "" # This would need more specific logic per site
+
+        # --- Categorization (using helper) ---
+        segment, positioning, animal_replicated = infer_product_details(item['product_name'])
+        item['segment'] = segment
+        item['positioning'] = positioning
+        item['animal_product_replicated'] = animal_replicated
+
+        # --- Default/Placeholder Values ---
+        item['consumption_format'] = "RTC"
+        item['storage_condition'] = "Frozen" # Default, may need adjustment
+        item['status'] = "Launched"
+        item['distribution_channels'] = "Brand website"
+        item['channel'] = "D2C"
+        item['last_updated'] = 'n/a' # WooCommerce doesn't expose this easily
+        item['notes'] = "Price is N/A, likely a catalog-mode site." if item['price_inr'] == 'N/A' else ""
+
+        yield item
 
     def parse_playwright_page(self, response):
         """

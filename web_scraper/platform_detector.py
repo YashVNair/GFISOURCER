@@ -15,7 +15,11 @@ def detect_platform(url):
         url = 'https://' + url
 
     try:
-        response = requests.get(url, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        }
+        response = requests.get(url, timeout=10, headers=headers)
         response.raise_for_status()
         content = response.text
 
@@ -23,9 +27,9 @@ def detect_platform(url):
         if 'Shopify' in content or 'cdn.shopify.com' in content or '.myshopify.com' in url:
             return 'shopify'
 
-        # Future checks for other platforms can be added here
-        # elif 'woocommerce' in content:
-        #     return 'woocommerce'
+        # Check for WooCommerce (WordPress)
+        if '/wp-content/' in content:
+            return 'woocommerce'
 
         return 'unknown'
 
@@ -38,6 +42,7 @@ if __name__ == '__main__':
     test_urls = {
         "Good Dot (Shopify)": "https://gooddot.in",
         "Blue Tribe (Shopify)": "https://www.bluetribefoods.com",
+        "Vezlay (WooCommerce)": "https://vezlay.com/",
         "Google (Unknown)": "https://google.com",
         "Invalid URL": "https://thissitedoesnotexist12345.com"
     }
