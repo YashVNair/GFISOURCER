@@ -5,6 +5,7 @@ import subprocess
 import threading
 import database
 import concurrent.futures
+import sys
 
 class ScraperGUI(tk.Frame):
     def __init__(self, master=None):
@@ -73,23 +74,28 @@ class ScraperGUI(tk.Frame):
         self.run_button.pack(pady=10, fill=tk.X, ipady=5)
 
     def create_data_viewer_widgets(self, parent_tab):
-        # ... (same as before)
         top_frame = ttk.Frame(parent_tab)
         top_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Label(top_frame, text="Scraped Products Database", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
         self.refresh_button = ttk.Button(top_frame, text="Refresh Data", command=self.refresh_data_view)
         self.refresh_button.pack(side=tk.RIGHT)
+
         tree_frame = ttk.Frame(parent_tab)
         tree_frame.pack(fill=tk.BOTH, expand=True)
+
         columns = ("Brand", "Product Name", "Price (INR)", "Weight", "Availability", "Last Updated")
         self.tree = ttk.Treeview(tree_frame, columns=columns, show='headings')
+
         for col in columns:
             self.tree.heading(col, text=col, command=lambda _col=col: self.sort_treeview(_col, False))
             self.tree.column(col, width=150, anchor=tk.W)
+
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         vsb.pack(side='right', fill='y')
         self.tree.configure(yscrollcommand=vsb.set)
+
         hsb = ttk.Scrollbar(parent_tab, orient="horizontal", command=self.tree.xview)
         hsb.pack(side='bottom', fill='x')
         self.tree.configure(xscrollcommand=hsb.set)
@@ -102,7 +108,6 @@ class ScraperGUI(tk.Frame):
         self.tree.heading(col, command=lambda: self.sort_treeview(col, not reverse))
 
     def refresh_data_view(self):
-        # ... (same as before)
         for item in self.tree.get_children():
             self.tree.delete(item)
         try:
@@ -114,7 +119,6 @@ class ScraperGUI(tk.Frame):
             messagebox.showerror("Database Error", f"Could not fetch data from the database.\n{e}")
 
     def load_companies(self):
-        # ... (same as before)
         self.company_listbox.delete(0, tk.END)
         try:
             with open(self.companies_file_path, 'r', encoding='utf-8') as f:
@@ -125,14 +129,12 @@ class ScraperGUI(tk.Frame):
             messagebox.showerror("Error", f"companies.txt not found at {self.companies_file_path}")
 
     def save_companies(self):
-        # ... (same as before)
         companies = self.company_listbox.get(0, tk.END)
         with open(self.companies_file_path, 'w', encoding='utf-8') as f:
             for company in companies:
                 f.write(f"{company}\n")
 
     def add_company(self):
-        # ... (same as before)
         new_company = self.new_company_entry.get().strip()
         if new_company:
             self.company_listbox.insert(tk.END, new_company)
@@ -142,7 +144,6 @@ class ScraperGUI(tk.Frame):
             messagebox.showwarning("Warning", "Company name cannot be empty.")
 
     def remove_company(self):
-        # ... (same as before)
         selected_index = self.company_listbox.curselection()
         if selected_index:
             self.company_listbox.delete(selected_index)
@@ -159,11 +160,11 @@ class ScraperGUI(tk.Frame):
         thread.start()
 
     def execute_scraper(self):
+        python_executable = sys.executable # Get path to current python interpreter
         try:
             # 1. Get the list of available spiders
-            list_process = subprocess.run(['scrapy', 'list'], cwd=self.project_dir, capture_output=True, text=True)
-            if list_process.returncode != 0:
-                raise Exception(f"Failed to list spiders:\n{list_process.stderr}")
+            list_command = [python_executable, '-m', 'scrapy', 'list']
+            list_process = subprocess.run(list_command, cwd=self.project_dir, capture_output=True, text=True, check=True)
 
             spiders = list_process.stdout.strip().split('\n')
             if not spiders or spiders == ['']:
@@ -174,26 +175,31 @@ class ScraperGUI(tk.Frame):
 
             # 2. Run each spider in a thread pool
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_spider = {executor.submit(self.run_spider, spider): spider for spider in spiders}
+                future_to_spider = {executor.submit(self.run_spider, spider_name, python_executable): spider_name for spider_name in spiders}
                 for future in concurrent.futures.as_completed(future_to_spider):
                     spider_name = future_to_spider[future]
                     try:
-                        future.result() #
+                        future.result()
                     except Exception as exc:
                         self.append_to_output(f"Spider {spider_name} generated an exception: {exc}\n")
                     finally:
                         self.completed_tasks += 1
                         self.master.after(0, lambda: self.progress_bar.config(value=self.completed_tasks))
 
+        except FileNotFoundError:
+             self.master.after(0, self.append_to_output, f"Error: '{python_executable}' not found. Is Python installed and in your PATH?")
+        except subprocess.CalledProcessError as e:
+            self.master.after(0, self.append_to_output, f"Error listing spiders:\n{e.stderr}")
         except Exception as e:
             self.master.after(0, self.append_to_output, f"\n--- An error occurred ---\n{e}\n")
         finally:
             self.master.after(0, self.finalize_scraper_run)
 
-    def run_spider(self, spider_name):
+    def run_spider(self, spider_name, python_executable):
         self.append_to_output(f"--- Starting spider: {spider_name} ---\n")
+        crawl_command = [python_executable, '-m', 'scrapy', 'crawl', spider_name]
         process = subprocess.Popen(
-            ['scrapy', 'crawl', spider_name],
+            crawl_command,
             cwd=self.project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -213,8 +219,12 @@ class ScraperGUI(tk.Frame):
 
     def finalize_scraper_run(self):
         self.run_button.config(state=tk.NORMAL, text="Run All Scrapers")
-        messagebox.showinfo("Success", "All spiders have completed their runs!")
-        self.progress_bar['value'] = self.progress_bar['maximum']
+        if self.progress_bar['value'] == self.progress_bar['maximum']:
+             messagebox.showinfo("Success", "All spiders have completed their runs!")
+        else:
+             messagebox.showwarning("Warning", "Some spiders may have failed. Check the log for details.")
+        self.progress_bar['value'] = 0
+
 
 if __name__ == "__main__":
     root = tk.Tk()
