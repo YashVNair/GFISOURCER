@@ -25,7 +25,6 @@ class ScraperGUI(tk.Frame):
         self.load_companies_to_treeview()
 
     def create_widgets(self):
-        # ... (same as before)
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.scraper_control_tab = ttk.Frame(self.notebook, padding=10)
@@ -36,7 +35,6 @@ class ScraperGUI(tk.Frame):
         self.create_data_viewer_widgets(self.data_viewer_tab)
 
     def create_scraper_control_widgets(self, parent_tab):
-        # ... (same as before, with the new button)
         left_frame = ttk.Frame(parent_tab)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         right_frame = ttk.Frame(parent_tab)
@@ -123,7 +121,6 @@ class ScraperGUI(tk.Frame):
         self.master.after(0, update_gui)
 
     def create_data_viewer_widgets(self, parent_tab):
-        # ... (same as before)
         top_frame = ttk.Frame(parent_tab)
         top_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Label(top_frame, text="Scraped Products Database", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
@@ -133,39 +130,64 @@ class ScraperGUI(tk.Frame):
         self.export_button.pack(side=tk.LEFT, padx=(0, 5))
         self.refresh_button = ttk.Button(button_pack, text="Refresh Data", command=self.refresh_data_view)
         self.refresh_button.pack(side=tk.LEFT)
+
         tree_frame = ttk.Frame(parent_tab)
         tree_frame.pack(fill=tk.BOTH, expand=True)
-        columns = ("Brand", "Product Name", "Price (INR)", "Weight", "Availability", "Last Updated")
+
+        columns = (
+            "Title", "Brand", "Category", "Price INR", "Weight", "Availability",
+            "Status", "Last Updated", "Pack Size", "Price per Kg/L"
+        )
+
         self.data_tree = ttk.Treeview(tree_frame, columns=columns, show='headings')
+
         for col in columns:
             self.data_tree.heading(col, text=col, command=lambda _col=col: self.sort_treeview(_col, False, self.data_tree))
-            self.data_tree.column(col, width=150, anchor=tk.W)
+            if col == "Title":
+                self.data_tree.column(col, width=250, anchor=tk.W)
+            elif col == "Brand" or col == "Category":
+                self.data_tree.column(col, width=150, anchor=tk.W)
+            else:
+                self.data_tree.column(col, width=100, anchor=tk.CENTER)
+
         self.data_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.data_tree.yview)
         vsb.pack(side='right', fill='y')
         self.data_tree.configure(yscrollcommand=vsb.set)
-        hsb = ttk.Scrollbar(parent_tab, orient="horizontal", command=self.data_tree.xview)
-        hsb.pack(side='bottom', fill='x')
+
+        hsb_frame = ttk.Frame(parent_tab)
+        hsb_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        hsb = ttk.Scrollbar(hsb_frame, orient="horizontal", command=self.data_tree.xview)
+        hsb.pack(fill='x', expand=True)
         self.data_tree.configure(xscrollcommand=hsb.set)
 
-    # ... (rest of the methods are the same as before)
     def export_data(self):
         products = database.get_all_products()
         if not products:
             messagebox.showinfo("Export Data", "There is no data in the database to export.")
             return
-        json_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")], title="Save JSON As")
-        if json_path:
-            if file_exporter.write_to_json(products, json_path):
-                messagebox.showinfo("Success", f"Data successfully exported to {json_path}")
-            else:
-                messagebox.showerror("Error", f"Failed to export data to {json_path}")
-        csv_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")], title="Save CSV As")
-        if csv_path:
-            if file_exporter.write_to_csv(products, csv_path):
-                messagebox.showinfo("Success", f"Data successfully exported to {csv_path}")
-            else:
-                messagebox.showerror("Error", f"Failed to export data to {csv_path}")
+
+        file_types = [("CSV files", "*.csv"), ("JSON files", "*.json")]
+        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=file_types, title="Export Data As")
+
+        if not file_path:
+            return
+
+        _, ext = os.path.splitext(file_path)
+
+        if ext.lower() == '.csv':
+            success = file_exporter.write_to_csv(products, file_path)
+        elif ext.lower() == '.json':
+            success = file_exporter.write_to_json(products, file_path)
+        else:
+            messagebox.showerror("Error", "Unsupported file type. Please choose .csv or .json.")
+            return
+
+        if success:
+            messagebox.showinfo("Success", f"Data successfully exported to {file_path}")
+        else:
+            messagebox.showerror("Error", f"Failed to export data to {file_path}")
 
     def sort_treeview(self, col, reverse, tree):
         data = [(tree.set(child, col), child) for child in tree.get_children('')]
@@ -180,6 +202,7 @@ class ScraperGUI(tk.Frame):
         try:
             products = database.get_all_products()
             for product in products:
+                # Ensure the order of values matches the order of columns in the treeview
                 row_values = [product.get(col, "") for col in self.data_tree['columns']]
                 self.data_tree.insert("", tk.END, values=row_values)
         except Exception as e:
@@ -246,9 +269,15 @@ class ScraperGUI(tk.Frame):
             with open(self.companies_file_path, 'r', newline='', encoding='utf-8') as f:
                 reader = list(csv.DictReader(f))
             if not reader:
-                raise Exception("companies.csv is empty. Add a company to scrape.")
+                self.master.after(0, self.append_to_output, "Error: companies.csv is empty. Add a company to scrape.\n")
+                self.master.after(0, self.finalize_scraper_run)
+                return
+
+            database.create_table() # Ensure DB is up-to-date before scraping
+
             self.master.after(0, lambda: self.progress_bar.config(maximum=len(reader), value=0))
             self.completed_tasks = 0
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 future_to_company = {executor.submit(self.run_spider, company, python_executable): company for company in reader}
                 for future in concurrent.futures.as_completed(future_to_company):
@@ -261,11 +290,13 @@ class ScraperGUI(tk.Frame):
                         self.completed_tasks += 1
                         self.master.after(0, lambda: self.progress_bar.config(value=self.completed_tasks))
         except FileNotFoundError:
-             self.master.after(0, self.append_to_output, "Error: companies.csv not found.")
+             self.master.after(0, self.append_to_output, "Error: companies.csv not found.\n")
         except Exception as e:
             self.master.after(0, self.append_to_output, f"\n--- An error occurred ---\n{e}\n")
         finally:
-            self.master.after(0, self.finalize_scraper_run)
+            # This block will run even if the executor block has an error
+            self.master.after(100, self.finalize_scraper_run)
+
 
     def run_spider(self, company_info, python_executable):
         name = company_info['name']
@@ -273,10 +304,19 @@ class ScraperGUI(tk.Frame):
         url = company_info['url']
         self.append_to_output(f"--- Starting scraper for: {name} ---\n")
         command = [python_executable, '-m', 'scrapy', 'crawl', 'product_spider', '-a', f'name={name}', '-a', f'type={scraper_type}', '-a', f'url={url}']
-        process = subprocess.Popen(command, cwd=self.project_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
+
+        # Use a lock for database operations
+        db_lock = threading.Lock()
+
+        process = subprocess.Popen(command, cwd=self.project_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', bufsize=1)
+
         for line in iter(process.stdout.readline, ''):
             self.master.after(0, self.append_to_output, line)
+
         process.wait()
+
+        # After the spider finishes, refresh the data view
+        self.master.after(0, self.refresh_data_view)
         self.append_to_output(f"--- Finished scraper for: {name} ---\n\n")
 
     def append_to_output(self, text):
@@ -292,6 +332,7 @@ class ScraperGUI(tk.Frame):
         else:
              messagebox.showwarning("Warning", "Some scrapers may have failed. Check the log for details.")
         self.progress_bar['value'] = 0
+        self.refresh_data_view() # Final refresh after all scrapers are done
 
 if __name__ == "__main__":
     root = tk.Tk()
