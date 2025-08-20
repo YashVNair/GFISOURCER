@@ -9,6 +9,7 @@ import sys
 import csv
 import file_exporter
 import platform_detector # Import the new module
+from urllib.parse import urlparse
 
 class ScraperGUI(tk.Frame):
     def __init__(self, master=None):
@@ -57,7 +58,7 @@ class ScraperGUI(tk.Frame):
         add_frame = ttk.LabelFrame(left_frame, text="Add New Company", padding=10)
         add_frame.pack(fill=tk.X, pady=5)
 
-        ttk.Label(add_frame, text="Name:").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(add_frame, text="Name (Optional):").grid(row=0, column=0, sticky="w", pady=2)
         self.name_entry = ttk.Entry(add_frame)
         self.name_entry.grid(row=0, column=1, columnspan=2, sticky="ew", pady=2)
 
@@ -65,7 +66,7 @@ class ScraperGUI(tk.Frame):
         self.url_entry = ttk.Entry(add_frame)
         self.url_entry.grid(row=1, column=1, columnspan=2, sticky="ew", pady=2)
 
-        ttk.Label(add_frame, text="Type:").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Label(add_frame, text="Type (Optional):").grid(row=2, column=0, sticky="w", pady=2)
         self.type_entry = ttk.Entry(add_frame)
         self.type_entry.grid(row=2, column=1, sticky="ew", pady=2)
         self.detect_type_button = ttk.Button(add_frame, text="Detect", command=self.on_detect_type)
@@ -215,14 +216,28 @@ class ScraperGUI(tk.Frame):
         name = self.name_entry.get().strip()
         scraper_type = self.type_entry.get().strip()
         url = self.url_entry.get().strip()
-        if name and scraper_type and url:
-            self.company_tree.insert("", tk.END, values=(name, scraper_type, url))
-            self.save_companies_from_treeview()
-            self.name_entry.delete(0, tk.END)
-            self.url_entry.delete(0, tk.END)
-            self.type_entry.delete(0, tk.END)
-        else:
-            messagebox.showwarning("Warning", "All fields are required to add a company.")
+
+        if not url:
+            messagebox.showwarning("Warning", "URL field is required to add a company.")
+            return
+
+        if not name:
+            try:
+                parsed_url = urlparse(url)
+                name = parsed_url.netloc
+                if name.startswith('www.'):
+                    name = name[4:]
+            except Exception as e:
+                name = "unknown" # Fallback name
+
+        if not scraper_type:
+            scraper_type = platform_detector.detect_platform(url)
+
+        self.company_tree.insert("", tk.END, values=(name, scraper_type, url))
+        self.save_companies_from_treeview()
+        self.name_entry.delete(0, tk.END)
+        self.url_entry.delete(0, tk.END)
+        self.type_entry.delete(0, tk.END)
 
     def remove_company(self):
         selected_item = self.company_tree.selection()
