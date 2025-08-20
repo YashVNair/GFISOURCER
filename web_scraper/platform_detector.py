@@ -24,8 +24,8 @@ def detect_platform(url):
             return 'shopify'
 
         # Future checks for other platforms can be added here
-        # elif 'woocommerce' in content:
-        #     return 'woocommerce'
+        elif 'hotel-link' in content and 'hotel-name' in content:
+            return 'trekky'
 
         return 'unknown'
 

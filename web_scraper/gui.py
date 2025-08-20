@@ -8,7 +8,67 @@ import concurrent.futures
 import sys
 import csv
 import file_exporter
-import platform_detector # Import the new module
+import platform_detector
+
+class ScraperLogic:
+    def __init__(self, project_dir, companies_file_path, output_callback, progress_callback, completion_callback):
+        self.project_dir = project_dir
+        self.companies_file_path = companies_file_path
+        self.output_callback = output_callback
+        self.progress_callback = progress_callback
+        self.completion_callback = completion_callback
+
+    def execute_scraper(self):
+        python_executable = sys.executable
+        try:
+            with open(self.companies_file_path, 'r', newline='', encoding='utf-8') as f:
+                reader = list(csv.DictReader(f))
+            if not reader:
+                raise Exception("companies.csv is empty. Add a company to scrape.")
+
+            self.progress_callback(0, len(reader))
+            completed_tasks = 0
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_company = {executor.submit(self.run_spider, company, python_executable): company for company in reader}
+                for future in concurrent.futures.as_completed(future_to_company):
+                    company = future_to_company[future]
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        self.output_callback(f"Scraper for {company['name']} generated an exception: {exc}\n")
+                    finally:
+                        completed_tasks += 1
+                        self.progress_callback(completed_tasks, len(reader))
+        except FileNotFoundError:
+             self.output_callback("Error: companies.csv not found.")
+        except Exception as e:
+            self.output_callback(f"\n--- An error occurred ---\n{e}\n")
+        finally:
+            self.completion_callback()
+
+    def run_spider(self, company_info, python_executable):
+        name = company_info['name']
+        scraper_type = company_info['type']
+        url = company_info['url']
+
+        if scraper_type.lower() == 'auto':
+            self.output_callback(f"--- Auto-detecting platform for: {name} ---\n")
+            detected_type = platform_detector.detect_platform(url)
+            self.output_callback(f"--- Detected platform: {detected_type} ---\n")
+
+            if detected_type in ['unknown', 'error']:
+                self.output_callback(f"--- Could not determine scraper type for {name}. Skipping. ---\n\n")
+                return
+            scraper_type = detected_type
+
+        self.output_callback(f"--- Starting scraper for: {name} (Type: {scraper_type}) ---\n")
+        command = [python_executable, '-m', 'scrapy', 'crawl', 'product_spider', '-a', f'name={name}', '-a', f'type={scraper_type}', '-a', f'url={url}']
+        process = subprocess.Popen(command, cwd=self.project_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
+        for line in iter(process.stdout.readline, ''):
+            self.output_callback(line)
+        process.wait()
+        self.output_callback(f"--- Finished scraper for: {name} ---\n\n")
 
 class ScraperGUI(tk.Frame):
     def __init__(self, master=None):
@@ -24,8 +84,15 @@ class ScraperGUI(tk.Frame):
         self.create_widgets()
         self.load_companies_to_treeview()
 
+        self.scraper_logic = ScraperLogic(
+            project_dir=self.project_dir,
+            companies_file_path=self.companies_file_path,
+            output_callback=self.append_to_output,
+            progress_callback=self.update_progress,
+            completion_callback=self.finalize_scraper_run
+        )
+
     def create_widgets(self):
-        # ... (same as before)
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         self.scraper_control_tab = ttk.Frame(self.notebook, padding=10)
@@ -36,7 +103,6 @@ class ScraperGUI(tk.Frame):
         self.create_data_viewer_widgets(self.data_viewer_tab)
 
     def create_scraper_control_widgets(self, parent_tab):
-        # ... (same as before, with the new button)
         left_frame = ttk.Frame(parent_tab)
         left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         right_frame = ttk.Frame(parent_tab)
@@ -123,7 +189,6 @@ class ScraperGUI(tk.Frame):
         self.master.after(0, update_gui)
 
     def create_data_viewer_widgets(self, parent_tab):
-        # ... (same as before)
         top_frame = ttk.Frame(parent_tab)
         top_frame.pack(fill=tk.X, pady=(0, 5))
         ttk.Label(top_frame, text="Scraped Products Database", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
@@ -148,7 +213,6 @@ class ScraperGUI(tk.Frame):
         hsb.pack(side='bottom', fill='x')
         self.data_tree.configure(xscrollcommand=hsb.set)
 
-    # ... (rest of the methods are the same as before)
     def export_data(self):
         products = database.get_all_products()
         if not products:
@@ -237,61 +301,31 @@ class ScraperGUI(tk.Frame):
         self.output_text.config(state=tk.NORMAL)
         self.output_text.delete(1.0, tk.END)
         self.output_text.config(state=tk.DISABLED)
-        thread = threading.Thread(target=self.execute_scraper, daemon=True)
+        thread = threading.Thread(target=self.scraper_logic.execute_scraper, daemon=True)
         thread.start()
 
-    def execute_scraper(self):
-        python_executable = sys.executable
-        try:
-            with open(self.companies_file_path, 'r', newline='', encoding='utf-8') as f:
-                reader = list(csv.DictReader(f))
-            if not reader:
-                raise Exception("companies.csv is empty. Add a company to scrape.")
-            self.master.after(0, lambda: self.progress_bar.config(maximum=len(reader), value=0))
-            self.completed_tasks = 0
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_company = {executor.submit(self.run_spider, company, python_executable): company for company in reader}
-                for future in concurrent.futures.as_completed(future_to_company):
-                    company = future_to_company[future]
-                    try:
-                        future.result()
-                    except Exception as exc:
-                        self.append_to_output(f"Scraper for {company['name']} generated an exception: {exc}\n")
-                    finally:
-                        self.completed_tasks += 1
-                        self.master.after(0, lambda: self.progress_bar.config(value=self.completed_tasks))
-        except FileNotFoundError:
-             self.master.after(0, self.append_to_output, "Error: companies.csv not found.")
-        except Exception as e:
-            self.master.after(0, self.append_to_output, f"\n--- An error occurred ---\n{e}\n")
-        finally:
-            self.master.after(0, self.finalize_scraper_run)
-
-    def run_spider(self, company_info, python_executable):
-        name = company_info['name']
-        scraper_type = company_info['type']
-        url = company_info['url']
-        self.append_to_output(f"--- Starting scraper for: {name} ---\n")
-        command = [python_executable, '-m', 'scrapy', 'crawl', 'product_spider', '-a', f'name={name}', '-a', f'type={scraper_type}', '-a', f'url={url}']
-        process = subprocess.Popen(command, cwd=self.project_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
-        for line in iter(process.stdout.readline, ''):
-            self.master.after(0, self.append_to_output, line)
-        process.wait()
-        self.append_to_output(f"--- Finished scraper for: {name} ---\n\n")
-
     def append_to_output(self, text):
-        self.output_text.config(state=tk.NORMAL)
-        self.output_text.insert(tk.END, text)
-        self.output_text.see(tk.END)
-        self.output_text.config(state=tk.DISABLED)
+        def _append():
+            self.output_text.config(state=tk.NORMAL)
+            self.output_text.insert(tk.END, text)
+            self.output_text.see(tk.END)
+            self.output_text.config(state=tk.DISABLED)
+        self.master.after(0, _append)
+
+    def update_progress(self, value, maximum):
+        def _update():
+            self.progress_bar.config(maximum=maximum, value=value)
+        self.master.after(0, _update)
 
     def finalize_scraper_run(self):
-        self.run_button.config(state=tk.NORMAL, text="Run All Scrapers")
-        if self.progress_bar['value'] == self.progress_bar['maximum']:
-             messagebox.showinfo("Success", "All scrapers have completed their runs!")
-        else:
-             messagebox.showwarning("Warning", "Some scrapers may have failed. Check the log for details.")
-        self.progress_bar['value'] = 0
+        def _finalize():
+            self.run_button.config(state=tk.NORMAL, text="Run All Scrapers")
+            if self.progress_bar['value'] == self.progress_bar['maximum']:
+                 messagebox.showinfo("Success", "All scrapers have completed their runs!")
+            else:
+                 messagebox.showwarning("Warning", "Some scrapers may have failed. Check the log for details.")
+            self.progress_bar['value'] = 0
+        self.master.after(0, _finalize)
 
 if __name__ == "__main__":
     root = tk.Tk()
