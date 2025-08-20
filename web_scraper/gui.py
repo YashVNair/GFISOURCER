@@ -21,6 +21,9 @@ class ScraperGUI(tk.Frame):
         self.project_dir = os.path.join(os.path.dirname(__file__), "product_scraper")
         self.companies_file_path = os.path.join(os.path.dirname(__file__), "companies.csv")
 
+        self.scraping_mode = tk.StringVar(value="all")
+        self.scraping_mode.trace_add("write", self.update_run_button_text)
+
         self.create_widgets()
         self.load_companies_to_treeview()
 
@@ -77,6 +80,11 @@ class ScraperGUI(tk.Frame):
         self.remove_button = ttk.Button(left_frame, text="Remove Selected Company", command=self.remove_company)
         self.remove_button.pack(fill=tk.X)
 
+        options_frame = ttk.LabelFrame(right_frame, text="Scraping Options", padding=10)
+        options_frame.pack(fill=tk.X, pady=(5, 10))
+        ttk.Radiobutton(options_frame, text="Batch (all companies)", variable=self.scraping_mode, value="all").pack(anchor="w")
+        ttk.Radiobutton(options_frame, text="On-demand (selected companies)", variable=self.scraping_mode, value="selected").pack(anchor="w")
+
         ttk.Label(right_frame, text="Scraper Log", font=("Arial", 12, "bold")).pack(anchor="w")
         log_frame = ttk.Frame(right_frame)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
@@ -89,6 +97,12 @@ class ScraperGUI(tk.Frame):
         self.progress_bar.pack(fill=tk.X, pady=(5,0))
         self.run_button = ttk.Button(right_frame, text="Run All Scrapers", command=self.start_scraper_thread)
         self.run_button.pack(pady=10, fill=tk.X, ipady=5)
+
+    def update_run_button_text(self, *args):
+        if self.scraping_mode.get() == "all":
+            self.run_button.config(text="Run All Scrapers")
+        else:
+            self.run_button.config(text="Run Selected Scrapers")
 
     def on_detect_type(self):
         url = self.url_entry.get().strip()
@@ -237,20 +251,38 @@ class ScraperGUI(tk.Frame):
         self.output_text.config(state=tk.NORMAL)
         self.output_text.delete(1.0, tk.END)
         self.output_text.config(state=tk.DISABLED)
-        thread = threading.Thread(target=self.execute_scraper, daemon=True)
+
+        companies_to_scrape = None
+        if self.scraping_mode.get() == "selected":
+            selected_items = self.company_tree.selection()
+            if not selected_items:
+                messagebox.showwarning("Warning", "Please select at least one company to scrape.")
+                self.run_button.config(state=tk.NORMAL)
+                self.update_run_button_text()
+                return
+
+            companies_to_scrape = []
+            for item_id in selected_items:
+                values = self.company_tree.item(item_id)['values']
+                companies_to_scrape.append({'name': values[0], 'type': values[1], 'url': values[2]})
+
+        thread = threading.Thread(target=self.execute_scraper, args=(companies_to_scrape,), daemon=True)
         thread.start()
 
-    def execute_scraper(self):
+    def execute_scraper(self, companies_to_scrape=None):
         python_executable = sys.executable
         try:
-            with open(self.companies_file_path, 'r', newline='', encoding='utf-8') as f:
-                reader = list(csv.DictReader(f))
-            if not reader:
-                raise Exception("companies.csv is empty. Add a company to scrape.")
-            self.master.after(0, lambda: self.progress_bar.config(maximum=len(reader), value=0))
+            if companies_to_scrape is None:
+                with open(self.companies_file_path, 'r', newline='', encoding='utf-8') as f:
+                    companies_to_scrape = list(csv.DictReader(f))
+
+            if not companies_to_scrape:
+                raise Exception("No companies to scrape. Add a company or select one.")
+
+            self.master.after(0, lambda: self.progress_bar.config(maximum=len(companies_to_scrape), value=0))
             self.completed_tasks = 0
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                future_to_company = {executor.submit(self.run_spider, company, python_executable): company for company in reader}
+                future_to_company = {executor.submit(self.run_spider, company, python_executable): company for company in companies_to_scrape}
                 for future in concurrent.futures.as_completed(future_to_company):
                     company = future_to_company[future]
                     try:
@@ -286,7 +318,8 @@ class ScraperGUI(tk.Frame):
         self.output_text.config(state=tk.DISABLED)
 
     def finalize_scraper_run(self):
-        self.run_button.config(state=tk.NORMAL, text="Run All Scrapers")
+        self.run_button.config(state=tk.NORMAL)
+        self.update_run_button_text()
         if self.progress_bar['value'] == self.progress_bar['maximum']:
              messagebox.showinfo("Success", "All scrapers have completed their runs!")
         else:
