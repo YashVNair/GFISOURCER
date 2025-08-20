@@ -9,6 +9,7 @@ import sys
 import csv
 import file_exporter
 import platform_detector # Import the new module
+from visual_tagger import VisualTaggerWindow
 
 class ScraperGUI(tk.Frame):
     def __init__(self, master=None):
@@ -72,7 +73,10 @@ class ScraperGUI(tk.Frame):
         self.detect_type_button.grid(row=2, column=2, sticky="e", padx=(5,0))
 
         self.add_button = ttk.Button(add_frame, text="Add Company", command=self.add_company)
-        self.add_button.grid(row=3, column=0, columnspan=3, sticky="ew", pady=5)
+        self.add_button.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(5, 2))
+
+        self.visual_button = ttk.Button(add_frame, text="Create New Visual Scraper", command=self.open_visual_tagger)
+        self.visual_button.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(2, 5))
 
         self.remove_button = ttk.Button(left_frame, text="Remove Selected Company", command=self.remove_company)
         self.remove_button.pack(fill=tk.X)
@@ -224,6 +228,15 @@ class ScraperGUI(tk.Frame):
         else:
             messagebox.showwarning("Warning", "All fields are required to add a company.")
 
+    def add_company_from_tagger(self, name, scraper_type, url):
+        # Called from the VisualTaggerWindow to add a new company automatically
+        self.company_tree.insert("", tk.END, values=(name, scraper_type, url))
+        self.save_companies_from_treeview()
+        self.name_entry.delete(0, tk.END)
+        self.url_entry.delete(0, tk.END)
+        self.type_entry.delete(0, tk.END)
+        messagebox.showinfo("Company Added", f"Company '{name}' has been added to the list with type 'visual'.")
+
     def remove_company(self):
         selected_item = self.company_tree.selection()
         if selected_item:
@@ -231,6 +244,20 @@ class ScraperGUI(tk.Frame):
             self.save_companies_from_treeview()
         else:
             messagebox.showwarning("Warning", "Please select a company to remove.")
+
+    def open_visual_tagger(self):
+        url = self.url_entry.get().strip()
+        if not url:
+            messagebox.showwarning("Warning", "Please enter a URL first to use the visual scraper.")
+            return
+
+        name = self.name_entry.get().strip()
+        if not name:
+            messagebox.showwarning("Warning", "Please enter a Company Name first. It is needed to save the configuration file.")
+            return
+
+        tagger_window = VisualTaggerWindow(self, url, name)
+        tagger_window.grab_set()
 
     def start_scraper_thread(self):
         self.run_button.config(state=tk.DISABLED, text="Scraping...")

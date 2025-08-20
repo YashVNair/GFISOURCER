@@ -62,6 +62,28 @@ class ProductSpider(scrapy.Spider):
                 callback=self.parse_playwright_page,
                 meta={"playwright": True}
             )
+        elif self.scraper_type == 'visual':
+            # The path is relative to the spider's execution directory, which is `product_scraper`
+            config_path = f"../configs/{self.company_name}.json"
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    self.visual_config = json.load(f)
+            except FileNotFoundError:
+                self.logger.error(f"Visual config file not found for '{self.company_name}' at {config_path}")
+                return
+            except json.JSONDecodeError:
+                self.logger.error(f"Error decoding JSON from {config_path}")
+                return
+
+            product_link_selector = self.visual_config.pop("_product_link_", None)
+            use_playwright = self.visual_config.get("_use_playwright_", False)
+            meta = {"playwright": True} if use_playwright else {}
+
+            if product_link_selector:
+                meta['product_link_selector'] = product_link_selector
+                yield scrapy.Request(self.start_url, callback=self.parse_visual_list, meta=meta)
+            else:
+                yield scrapy.Request(self.start_url, callback=self.parse_visual_detail, meta=meta)
         else:
             self.logger.error(f"Scraper type '{self.scraper_type}' is not supported for company '{self.company_name}'.")
 
@@ -139,3 +161,39 @@ class ProductSpider(scrapy.Spider):
                 item['last_updated'] = product.get('updated_at', '').split('T')[0]
                 item['notes'] = ""
                 yield item
+
+    def parse_visual_list(self, response):
+        product_link_selector = response.meta['product_link_selector']
+        links = response.css(product_link_selector).getall()
+        self.logger.info(f"Found {len(links)} product links on {response.url}")
+        for link in links:
+            # Pass the playwright meta flag along if it was used for the list page
+            yield response.follow(link, self.parse_visual_detail, meta={'playwright': response.meta.get('playwright', False)})
+
+    def parse_visual_detail(self, response):
+        self.logger.info(f"Parsing visual detail page {response.url}")
+        item = ProductItem()
+        item['brand'] = self.company_name
+        item['product_page'] = response.url
+        item['website'] = self.start_url
+
+        for field, selector in self.visual_config.items():
+            if field.startswith("_"): # Ignore private config fields
+                continue
+
+            # A simple convention: selector ending with ::attr(href) gets attribute, otherwise text.
+            if '::attr' in selector:
+                value = response.css(selector).get()
+            else:
+                # Get all text from all matching elements and join them.
+                value = ' '.join(response.css(selector).css('::text').getall()).strip()
+
+            if field in item.fields:
+                item[field] = value.strip() if value else ''
+            else:
+                self.logger.warning(f"'{field}' is not a valid field in ProductItem. Ignoring.")
+
+        # Some fields might need default values or further processing
+        item.setdefault('last_updated', 'n/a')
+
+        yield item

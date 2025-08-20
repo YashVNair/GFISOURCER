@@ -1,2 +1,6 @@
 requests
 beautifulsoup4
+scrapy
+playwright
+scrapy-playwright
+pywebview
