@@ -28,6 +28,8 @@ def create_table():
         "Weight" REAL,
         "Weight Unit" TEXT,
         "Pack Size" TEXT,
+        "SKU" TEXT,
+        "Claims" TEXT,
         "Distribution Channels" TEXT,
         "Channel" TEXT,
         "Product Page" TEXT PRIMARY KEY,

@@ -17,6 +17,8 @@ class ProductItem(scrapy.Item):
     weight = scrapy.Field()
     weight_unit = scrapy.Field()
     pack_size = scrapy.Field()
+    sku = scrapy.Field()
+    claims = scrapy.Field()
     distribution_channels = scrapy.Field()
     channel = scrapy.Field()
     product_page = scrapy.Field()

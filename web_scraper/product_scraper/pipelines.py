@@ -48,6 +48,8 @@ class DatabasePipeline:
             "Weight": product_data.get("weight"),
             "Weight Unit": product_data.get("weight_unit"),
             "Pack Size": product_data.get("pack_size"),
+            "SKU": product_data.get("sku"),
+            "Claims": product_data.get("claims"),
             "Distribution Channels": product_data.get("distribution_channels"),
             "Channel": product_data.get("channel"),
             "Product Page": product_data.get("product_page"),

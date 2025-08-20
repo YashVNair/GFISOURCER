@@ -18,6 +18,23 @@ def extract_ingredients(body_html):
         return ", ".join(ingredients_list), len(ingredients_list)
     return "", 0
 
+def extract_claims(body_html):
+    if not body_html:
+        return ""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(body_html, 'html.parser')
+    text = soup.get_text(separator=' ', strip=True).lower()
+
+    possible_claims = [
+        'vegan', 'plant-based', 'gluten-free', 'non-gmo', 'gmo-free',
+        'organic', 'natural', 'no preservatives', 'high protein',
+        'dairy-free', 'soy-free', 'no added sugar'
+    ]
+
+    found_claims = [claim for claim in possible_claims if claim in text]
+
+    return ", ".join(list(set(found_claims)))
+
 def parse_weight_from_title(title):
     match = re.search(r'\((\d+)\s*g\)', title, re.IGNORECASE)
     if match:
@@ -111,7 +128,9 @@ class ProductSpider(scrapy.Spider):
                 self.logger.info(f"Skipping product '{product['title']}' as it does not seem to be a meat analogue.")
                 continue
             for variant in product.get('variants', []):
-                ingredients, ingredient_count = extract_ingredients(product.get('body_html', ''))
+                body_html = product.get('body_html', '')
+                ingredients, ingredient_count = extract_ingredients(body_html)
+                claims = extract_claims(body_html)
                 weight = variant.get('grams') or parse_weight_from_title(product['title'])
                 pack_size = variant.get('title') if variant.get('title') != 'Default Title' else f"{weight}g" if weight else ""
                 item = ProductItem()
@@ -128,6 +147,8 @@ class ProductSpider(scrapy.Spider):
                 item['weight'] = weight
                 item['weight_unit'] = "g"
                 item['pack_size'] = pack_size
+                item['sku'] = variant.get('sku')
+                item['claims'] = claims
                 item['distribution_channels'] = "Brand website"
                 item['channel'] = "D2C"
                 item['product_page'] = product_url
