@@ -19,13 +19,17 @@ def detect_platform(url):
         response.raise_for_status()
         content = response.text
 
-        # Simple checks for Shopify fingerprints
-        if 'Shopify' in content or 'cdn.shopify.com' in content or '.myshopify.com' in url:
+        # Check for WooCommerce using a more specific fingerprint
+        if 'wp-content/plugins/woocommerce' in content:
+            return 'woocommerce'
+
+        # More specific check for Shopify to avoid false positives
+        if 'Shopify.theme' in content or 'cdn.shopify.com' in content or '.myshopify.com' in url:
             return 'shopify'
 
         # Future checks for other platforms can be added here
-        # elif 'woocommerce' in content:
-        #     return 'woocommerce'
+        # elif 'Magento' in content:
+        #     return 'magento'
 
         return 'unknown'
 
@@ -38,6 +42,7 @@ if __name__ == '__main__':
     test_urls = {
         "Good Dot (Shopify)": "https://gooddot.in",
         "Blue Tribe (Shopify)": "https://www.bluetribefoods.com",
+        "Wakao Foods (Shopify)": "https://wakaofoods.com/",
         "Google (Unknown)": "https://google.com",
         "Invalid URL": "https://thissitedoesnotexist12345.com"
     }
